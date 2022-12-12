@@ -1,0 +1,266 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2638
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 Menlo-Regular;\f1\fnil\fcharset0 Menlo-Bold;}
+{\colortbl;\red255\green255\blue255;\red255\green255\blue255;\red84\green84\blue83;\red39\green39\blue38;
+\red12\green93\blue22;\red0\green0\blue0;\red52\green144\blue90;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c100000\c100000\c0;\cssrgb\c40473\c40470\c39917;\cssrgb\c20237\c20235\c19959;
+\cssrgb\c0\c42860\c11053;\cssrgb\c0\c0\c0;\cssrgb\c24567\c62377\c42949;\csgray\c0;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww28600\viewh16380\viewkind0
+\deftab560
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+
+\f0\fs28 \cf0 \
+
+\f1\b # Exercise 2\
+\
+// Here are the imports need to solve the exercise.
+\f0\b0 \
+import org.apache.spark.rdd._\
+import spark.implicits._\
+import org.apache.spark.sql.\{SQLContext, Row, DataFrame, SparkSession\}\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 import org.apache.spark.sql.types.\{DoubleType, StringType, StructField, StructType, IntegerType\}\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 import org.apache.spark.ml.feature.VectorAssembler\
+import org.apache.spark.ml.\{Pipeline, PipelineModel\}\
+import org.apache.spark.ml.regression.\{DecisionTreeRegressionModel, DecisionTreeRegressor, RandomForestRegressionModel, RandomForestRegressor\}\
+import org.apache.spark.ml.evaluation.RegressionEvaluator\
+import org.apache.spark.ml.tuning.\{ParamGridBuilder, CrossValidator, CrossValidatorModel\}\
+import org.apache.spark.mllib.linalg._\
+import org.apache.spark.mllib.stat.Statistics\
+\
+
+\f1\b // (a)\
+\
+// This function was given by the teacher and it is to clean the data. Just note that we change the type from the RDD[Array[Any]] to RDD[Array[Double]], since we are working with numbers which have at most DoubleType.
+\f0\b0 \
+def parseNOAA(rawData: RDD[String]): RDD[Array[Double]] = \{\
+\
+    rawData\
+      .filter(line => line.substring(87, 92) != "+9999") // filter out missing temperature labels\
+      .map \{ line =>\
+      val year = line.substring(15, 19).toInt\
+      val month = line.substring(19, 21).toInt\
+      val day = line.substring(21, 23).toInt\
+      val hour = line.substring(23, 25).toInt\
+      val latitude = line.substring(28, 34).toDouble / 1000\
+      val longitude = line.substring(34, 41).toDouble / 1000\
+      val elevationDimension = line.substring(46, 51).toInt\
+      val directionAngle = line.substring(60, 63).toInt\
+      val speedRate = line.substring(65, 69).toDouble / 10\
+      val ceilingHeightDimension = line.substring(70, 75).toInt\
+      val distanceDimension = line.substring(78, 84).toInt\
+      val dewPointTemperature = line.substring(93, 98).toDouble / 10\
+      val airTemperature = line.substring(87, 92).toDouble / 10\
+\
+      Array(year, month, day, hour, latitude, longitude, elevationDimension, directionAngle, speedRate, ceilingHeightDimension, distanceDimension, dewPointTemperature, airTemperature)\
+    \}\
+  \}\
+
+\f1\b \
+// We load the file(s) and call the previous function. The variable parsedNOAA is a RDD, so we need to convert it to data frame to be easier to work with.
+\f0\b0 \
+val rawNOAA = sc.textFile("/home/users/coliveira/NOAA-065900/065900*")\
+val parsedNOAA = parseNOAA(rawNOAA)\
+val df = parsedNOAA.toDF()\
+
+\f1\b \
+// We noticed that df has one column named value and contains for each row  a tuple of 13 numbers. Hence we split the tuple into 13 columns with the a number and its respective name column. The result was a DataFrame with 13 columns of DoubleType. We decided to change some column type to IntegerType depending how the number was defined in the parseNOAA function, eg: year, month, day, etc. 
+\f0\b0 \
+val df_new = df.withColumn("year", $"value".getItem(0)).withColumn("month", $"value".getItem(1)).withColumn("day", $"value".getItem(2)).withColumn("hour", $"value".getItem(3)).withColumn("latitude", $"value".getItem(4)).withColumn("longitude", $"value".getItem(5)).withColumn("elevationDimension", $"value".getItem(6)).withColumn("directionAngle", $"value".getItem(7)).withColumn("speedRate", $"value".getItem(8)).withColumn("ceilingHeightDimension", $"value".getItem(9)).withColumn("distanceDimension", $"value".getItem(10)).withColumn("dewPointTemperature", $"value".getItem(11)).withColumn("airTemperature",$"value".getItem(12)).drop("value")\
+val df = df_new.withColumn("year", col("year").cast(IntegerType)).withColumn("month", col("month").cast(IntegerType)).withColumn("day", col("day").cast(IntegerType)).withColumn("hour", col("hour").cast(IntegerType)).withColumn("elevationDimension", col("elevationDimension").cast(IntegerType)).withColumn("directionAngle", col("directionAngle").cast(IntegerType)).withColumn("ceilingHeightDimension", col("ceilingHeightDimension").cast(IntegerType)).withColumn("distanceDimension", col("distanceDimension").cast(IntegerType))\
+
+\f1\b \
+// And we save it as an csv to a given path. And we can retrieve it from the same path. Always saving the first row as the name of the columns.
+\f0\b0 \
+df.write.option("header", true).csv("/home/users/coliveira/Exercise_2/datacv")\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 val df_str = spark.read.option("header", true).csv("/home/users/coliveira/Exercise_2/datacv")\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val df = df_str.withColumn("year", col("year").cast(IntegerType)).withColumn("month", col("month").cast(IntegerType)).withColumn("day", col("day").cast(IntegerType)).withColumn("hour", col("hour").cast(IntegerType)).withColumn("latitude", col("latitude").cast(DoubleType)).withColumn("longitude", col("longitude").cast(DoubleType)).withColumn("elevationDimension", col("elevationDimension").cast(IntegerType)).withColumn("directionAngle", col("directionAngle").cast(IntegerType)).withColumn("speedRate", col("speedRate").cast(DoubleType)).withColumn("ceilingHeightDimension", col("ceilingHeightDimension").cast(IntegerType)).withColumn("distanceDimension", col("distanceDimension").cast(IntegerType)).withColumn("dewPointTemperature", col("dewPointTemperature").cast(DoubleType)).withColumn("airTemperature", col("airTemperature").cast(DoubleType))\
+
+\f1\b \
+// We split the whole data randomly into training data and test data. The test data will be 10% of the whole dataset and training data will be 90% of the whole dataset.
+\f0\b0  \
+val Array(trainData, testData) = df.randomSplit(Array(0.9, 0.1))\
+
+\f1\b \
+// First we select the features column, meaning every column except the \'93airTemperature\'94 column. We can see that we are dealing with a regression problem. Then we use the vectorAssemble to output us one column with all the features. The name of that column is feature. Since we have regression problem, the model chosen is the decision tree regressor. We create a new pipeline that just goes from vectorAssembler to the decision tree.
+\f0\b0 \
+val features = df.dtypes.map(_._1).filterNot(_.contains("airTemperature"))\
+val vectorAssembler = new VectorAssembler().setInputCols(features).setOutputCol("feature")\
+val decisiontree = new DecisionTreeRegressor().setLabelCol("airTemperature").setFeaturesCol("feature")\
+val pipeline = new Pipeline().setStages(Array(vectorAssembler, decisiontree))\
+
+\f1\b \
+// We fit the training data through the pipeline and save the obtained model.
+\f0\b0 \
+val model = pipeline.fit(trainData)\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 model.write.overwrite().save("/home/users/coliveira/Exercise_2/decisiontreeregressor-model")\
+val model = PipelineModel.load("/home/users/coliveira/Exercise_2/decisiontreeregressor-model")\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 \
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // We transform the test data and calculate the loss function between the predicted value from the model and the actual value of the airTemperature. The loss function chosen is the rmse.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val pred = model.transform(testData)\
+val evaluator = new RegressionEvaluator().setLabelCol("airTemperature").setPredictionCol("prediction").setMetricName("rmse")\
+val rmse = evaluator.evaluate(pred) 
+\f1\b // The output is : 3.4173927129248893
+\f0\b0 \
+
+\f1\b \
+// We filter the dataset to get the information about a specific date and time. Every column of the previous result has a String type, so we changed it to a different type depending on which type the column was defined in the parseNOAA function. At the end we predict the airTemperature from the filtered dataset.
+\f0\b0 \
+val wantedprediction_str = df.filter(df("year") === 1949 && df("month") === 7 && df("day") === 2 && df("hour") === 12)\
+val wantedprediction = wantedprediction_str.withColumn("year", col("year").cast(IntegerType)).withColumn("month", col("month").cast(IntegerType)).withColumn("day", col("day").cast(IntegerType)).withColumn("hour", col("hour").cast(IntegerType)).withColumn("latitude", col("latitude").cast(DoubleType)).withColumn("longitude", col("longitude").cast(DoubleType)).withColumn("elevationDimension", col("elevationDimension").cast(IntegerType)).withColumn("directionAngle", col("directionAngle").cast(IntegerType)).withColumn("speedRate", col("speedRate").cast(DoubleType)).withColumn("ceilingHeightDimension", col("ceilingHeightDimension").cast(IntegerType)).withColumn("distanceDimension", col("distanceDimension").cast(IntegerType)).withColumn("dewPointTemperature", col("dewPointTemperature").cast(DoubleType)).withColumn("airTemperature", col("airTemperature").cast(DoubleType))\
+val wantedpred = model.transform(wantedprediction)\
+
+\f1\b \
+// We can print the decision tree schema and see how they took every decision.
+\f0\b0 \
+val treeModel = model.stages(1).asInstanceOf[DecisionTreeRegressionModel]\
+println(s"Learned regression tree model:\\n $\{treeModel.toDebugString\}")\
+\
+
+\f1\b // (b) + (c)\
+\
+// Before going to the random forest, we will rename the column \'93airTemperature\'94 to \'93label\'94. It will be easier for later in the cross validation. Then we split the dataset into training data and test data. The training data is every row such that the year is different then 2022 and the test data is every row such that the year is equal to 2022.
+\f0\b0 \
+val df_new = df.withColumnRenamed("airTemperature", "label")\
+val trainData = df_new.filter(!(df("year") === 2022))\
+val testData = df_new.filter(df("year") === 2022)\
+
+\f1\b \
+// We create a random forest regressor and we set the number of trees to 10. And create a parameter grid with some parameter chosen by us. To chose them, we took into account the recommendations from people online. And we create a new pipeline such that the stages go from vectorAssembler to the random forest.
+\f0\b0 \
+val randomforest = new RandomForestRegressor().setLabelCol("label").setFeaturesCol("feature").setNumTrees(10)\
+val paramgrid = new ParamGridBuilder().addGrid(randomforest.featureSubsetStrategy,Array("auto")).addGrid(randomforest.impurity,Array("variance")).addGrid(randomforest.maxBins,Array(100, 200)).addGrid(randomforest.maxDepth, Array(5,10)).build()\
+val pipeline = new Pipeline().setStages(Array(vectorAssembler, randomforest))\
+\
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // We fit the training data and save the model again.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val model_rf = pipeline.fit(trainData)\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 model_rf.write.overwrite().save("/home/users/coliveira/Exercise_2/randomforest-model")\
+val model_rf = PipelineModel.load("/home/users/coliveira/Exercise_2/randomforest-model")\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 \
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // For the cross-validation, we need to specify how the cross validation should evaluate and for that we use the regression evaluator. And we fit training data into the cross validation. The obtained model is then saved. The model will be the best model.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val evaluator1 = new RegressionEvaluator()\
+val cv = new CrossValidator().setEstimator(pipeline).setEstimatorParamMaps(paramgrid).setEvaluator(evaluator1)\
+val model_cv = cv.fit(trainData)\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 model_cv.write.overwrite().save("/home/users/coliveira/Exercise_2/Models/randomforest-cv-model")\
+val model_cv = CrossValidatorModel.load("/home/users/coliveira/Exercise_2/Models/randomforest-cv-model")\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 \
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // We do the prediction for the test data using the previous best model and with the predicted values and the exact values we calculate the loss function. Here we are \cb2 using the rmse.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val pred_cv = model_cv.transform(testData)\
+val evaluator = new RegressionEvaluator().setLabelCol("label").setPredictionCol("prediction").setMetricName("rmse")\
+val rmse = evaluator.evaluate(pred_cv) // The output is : 2.4576138618512804\
+\
+
+\f1\b // We went to the same website as in question point (a) as we could find any other good website such that it contains all of the features needed. We clean the data as before with the parseNOAA function and convert it to data frame. We notice again that df has one column named value and contains for each row  a tuple of 13 numbers. Hence we split the tuple into 13 columns with the a number and its respective name column. The result was a DataFrame with 13 columns of DoubleType. We decided to change some column type to IntegerType depending how the number was defined in the parseNOAA function, eg: year, month, day, etc. Later we just filter it to have only data from year 2022 and month 5 (the 5th month is may) and now we have the recent dates.
+\f0\b0 \CocoaLigature0 \
+\CocoaLigature1 val rawNOAA_recent = sc.textFile("\CocoaLigature0 /home/users/coliveira/065900-99999-2022\CocoaLigature1 ")\
+val parsedNOAA_recent = parseNOAA(rawNOAA_recent)\
+val df_recent = parsedNOAA_recent.toDF()\
+val df_new_recent = df_recent.withColumn("year", $"value".getItem(0)).withColumn("month", $"value".getItem(1)).withColumn("day", $"value".getItem(2)).withColumn("hour", $"value".getItem(3)).withColumn("latitude", $"value".getItem(4)).withColumn("longitude", $"value".getItem(5)).withColumn("elevationDimension", $"value".getItem(6)).withColumn("directionAngle", $"value".getItem(7)).withColumn("speedRate", $"value".getItem(8)).withColumn("ceilingHeightDimension", $"value".getItem(9)).withColumn("distanceDimension", $"value".getItem(10)).withColumn("dewPointTemperature", $"value".getItem(11)).withColumn("airTemperature",$"value".getItem(12)).drop("value")\
+val df_recent = df_new_recent.withColumn("year", col("year").cast(IntegerType)).withColumn("month", col("month").cast(IntegerType)).withColumn("day", col("day").cast(IntegerType)).withColumn("hour", col("hour").cast(IntegerType)).withColumn("elevationDimension", col("elevationDimension").cast(IntegerType)).withColumn("directionAngle", col("directionAngle").cast(IntegerType)).withColumn("ceilingHeightDimension", col("ceilingHeightDimension").cast(IntegerType)).withColumn("distanceDimension", col("distanceDimension").cast(IntegerType))\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab560\pardirnatural\partightenfactor0
+\cf0 val df_recent_filtered = df_recent.filter(df_recent("year") === "2022" && df_recent("month") === "5")\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 \
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // We predict the airTemperature from the data frame df_recent_filtered.
+\f0\b0  \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val pred_online = model_cv.transform(df_recent_filtered)\
+\
+\pard\pardeftab560\slleading20\partightenfactor0
+
+\f1\b \cf0 // Finally we compare the previously predicted air Temperature with the actual air Temperature using the rmse, which we defined manually. First we select the two columns that need to be compared. In our case is the prediction and air Temperature. Then we calculated the mse between the predicted value and the exact value. In our case the predicted value is the prediction and the exact value is the air Temperature. To get the rmse we just need to take the square root of mse.
+\f0\b0 \
+val mse = pred_online.select("prediction", "airTemperature").rdd\expnd0\expndtw0\kerning0
+.map\{\
+\pard\pardeftab720\partightenfactor0
+\cf0    line =>  math.pow((line\cb1 .getDouble(0) \cb2 - line\cb1 .getDouble(1)\cb2 ), 2)\
+\}.reduce(_ + _)/\kerning1\expnd0\expndtw0 pred_online\expnd0\expndtw0\kerning0
+.count\
+val rmse = math.pow(\kerning1\expnd0\expndtw0 mse, 0.5) 
+\f1\b // The output is : \cf8 \cb1 \CocoaLigature0 2.1688123923410156
+\f0\b0 \cf0 \cb2 \expnd0\expndtw0\kerning0
+\CocoaLigature1 \
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 \kerning1\expnd0\expndtw0 \
+
+\f1\b // Just to check that our previous defined rmse function and the rmse function from the library give us the exact same value. Meaning that the defined function is correct.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val evaluator = new RegressionEvaluator().setLabelCol("airTemperature").setPredictionCol("prediction").setMetricName("rmse")\
+val rmse = evaluator.evaluate(pred_online) 
+\f1\b // The output is : \cf8 \cb1 \CocoaLigature0 2.1688123923410156
+\f0\b0 \cf0 \cb2 \CocoaLigature1 \
+\
+
+\f1\b // (d)\
+\
+\pard\pardeftab560\slleading20\partightenfactor0
+\cf0 // To make our life easier, we converted the integer columns to columns with type double. Then for each column, we "extracted" the values from the corresponding column by (selecting a column and converting it to RDD for later mapping to get the only its values.
+\f0\b0 \
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+\cf0 val df = df_str.withColumn("year", col("year").cast(DoubleType)).withColumn("month", col("month").cast(DoubleType)).withColumn("day", col("day").cast(DoubleType)).withColumn("hour", col("hour").cast(DoubleType)).withColumn("latitude", col("latitude").cast(DoubleType)).withColumn("longitude", col("longitude").cast(DoubleType)).withColumn("elevationDimension", col("elevationDimension").cast(DoubleType)).withColumn("directionAngle", col("directionAngle").cast(DoubleType)).withColumn("speedRate", col("speedRate").cast(DoubleType)).withColumn("ceilingHeightDimension", col("ceilingHeightDimension").cast(DoubleType)).withColumn("distanceDimension", col("distanceDimension").cast(DoubleType)).withColumn("dewPointTemperature", col("dewPointTemperature").cast(DoubleType)).withColumn("airTemperature", col("airTemperature").cast(DoubleType))\
+val df_airTemperature = df.select("a\cb1 irTemperature").rdd.map(_.getDouble(0))\
+val df_year = df.select("year").rdd.map(_.getDouble(0))\
+val df_month = df.select("month").rdd.map(_.getDouble(0))\
+val df_day = df.select("day").rdd.map(_.getDouble(0))\
+val df_hour = df.select("hour").rdd.map(_.getDouble(0))\
+val df_latitude = df.select("latitude").rdd.map(_.getDouble(0))\
+val df_longitude = df.select("longitude").rdd.map(_.getDouble(0))\
+val df_elevationDimension = df.select("elevationDimension").rdd.map(_.getDouble(0))\
+val df_directionAngle = df.select("directionAngle").rdd.map(_.getDouble(0))\
+val df_speedRate = df.select("speedRate").rdd.map(_.getDouble(0))\
+val df_ceilingHeightDimension = df.select("ceilingHeightDimension").rdd.map(_.getDouble(0))\
+val df_distanceDimension = df.select("distanceDimension").rdd.map(_.getDouble(0))\
+val df_dewPointTemperature = df.select("dewPointTemperature").rdd.map(_.getDouble(0))\
+\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+
+\f1\b \cf0 // We use the Spearman correlation coefficient to find which feature from the dataset is most correlated with the label airTemperature. The feature which is the most spearman correlated with the air Temperature is the dewPointTemperature, since it has the highest absolute value.
+\f0\b0 \
+val correlation = Statistics.corr(df_airTemperature, df_year, "spearman")   // The output is: 0.08732237140037424  \
+val correlation = Statistics.corr(df_airTemperature, df_month, "spearman")   // The output is: 0.17858261462526942 \
+val correlation = Statistics.corr(df_airTemperature, df_day, "spearman")   // The output is: 0.010287163668369417\
+val correlation = Statistics.corr(df_airTemperature, df_hour, "spearman")   // The output is: 0.10136936029994482\
+val correlation = Statistics.corr(df_airTemperature, df_latitude, "spearman")   // The output is: 0.03916098422503587 \
+val correlation = Statistics.corr(df_airTemperature, df_longitude, "spearman")   // The output is: -0.021573977145768065 \
+val correlation = Statistics.corr(df_airTemperature, df_elevationDimension, "spearman")   // The output is: -0.08376849777075704 \
+val correlation = Statistics.corr(df_airTemperature, df_directionAngle, "spearman")   // The output is: 0.038943360204406384\
+val correlation = Statistics.corr(df_airTemperature, df_speedRate, "spearman")   // The output is: -0.03239235217085877\
+val correlation = Statistics.corr(df_airTemperature, df_ceilingHeightDimension, "spearman")   // The output is: 0.3238763778815121\
+val correlation = Statistics.corr(df_airTemperature, df_distanceDimension, "spearman")   // The output is: 0.3175372489273335\
+val correlation = Statistics.corr(df_airTemperature, df_dewPointTemperature, "spearman")   // The output is: 0.848860881334218\
+\
+\
+\
+\
+\
+\
+\
+\
+}
